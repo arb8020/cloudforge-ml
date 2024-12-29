@@ -1,4 +1,4 @@
-# cloud-train
+# cloudforge-ml
 goal: one-click training for hugging face models/datasets on arbitrary cloud compute platforms
 
 current status:
