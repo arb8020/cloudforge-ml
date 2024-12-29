@@ -1,0 +1,6 @@
+{
+  "command": "ssh root@69.30.85.21 -p 22104 -i ~/.ssh/id_ed25519",
+  "pod_id": "urppbtixluudra",
+  "ip": "69.30.85.21",
+  "port": 22104
+}
