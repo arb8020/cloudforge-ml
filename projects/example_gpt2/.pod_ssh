@@ -1,6 +1,0 @@
-{
-  "command": "ssh root@69.30.85.116 -p 22138 -i ~/.ssh/id_ed25519",
-  "pod_id": "9v1obe38dulzuz",
-  "ip": "69.30.85.116",
-  "port": 22138
-}
