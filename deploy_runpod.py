@@ -139,9 +139,14 @@ def read_config(config_path: str) -> Dict[str, Any]:
     if not os.path.isfile(config_path):
         raise ConfigurationError(f"Configuration file not found at {config_path}")
 
-    with open(config_path, 'r') as file:
+    with open(config_path, "r") as file:
         try:
             config = yaml.safe_load(file)
+
+            # Ensure script paths are relative to the project directory
+            project_dir = os.path.dirname(config_path)
+            config["script"]["path"] = os.path.join(project_dir, config["script"]["path"])
+            config["upload"]["local_dir"] = project_dir
             return config
         except yaml.YAMLError as e:
             raise ConfigurationError(f"Error parsing YAML file: {str(e)}")
@@ -199,7 +204,7 @@ def upload_files_to_pod(api_key: str, pod: Dict[str, Any], local_dir: str, remot
         "scp",
         "-i", ssh_key_path,
         "-P", str(ssh_port),
-        "-r", os.path.join(local_dir, '.'),  # Upload contents, not the directory itself
+        "-r", os.path.join(local_dir, '.'),  # Upload contents, including run_script.sh and script.py
         f"root@{ssh_ip}:{remote_dir}"
     ]
     rprint(f"[green]Uploading contents of '{local_dir}' to '{remote_dir}' on the pod...[/green]")
@@ -209,20 +214,20 @@ def upload_files_to_pod(api_key: str, pod: Dict[str, Any], local_dir: str, remot
     except subprocess.CalledProcessError as e:
         raise DeploymentError(f"SCP upload failed: {e.stderr}")
 
-def execute_script_on_pod(ssh_key_path: str, ssh_ip: str, ssh_port: int, script_path: str, env_vars: Dict[str, str]):
+def execute_script_on_pod(ssh_key_path: str, ssh_ip: str, ssh_port: int, script_path: str, env_vars: Dict[str, str], remote_dir: str):
     # Construct environment variables export command
     env_exports = ' && '.join([f'export {key}="{value}"' for key, value in env_vars.items()])
 
-    # Construct the SSH command to execute the script
+    # Change directory to the remote workspace and execute the script
     ssh_command = [
         "ssh",
         "-i", ssh_key_path,
         "-p", str(ssh_port),
         f"root@{ssh_ip}",
-        f"{env_exports} && bash {script_path}"
+        f"cd {remote_dir} && {env_exports} && bash {script_path}"
     ]
 
-    rprint(f"[green]Executing script: {script_path} on the pod...[/green]")
+    rprint(f"[green]Executing script: {script_path} in remote directory: {remote_dir}[/green]")
     try:
         process = subprocess.Popen(ssh_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
@@ -243,6 +248,7 @@ def execute_script_on_pod(ssh_key_path: str, ssh_ip: str, ssh_port: int, script_
     except subprocess.CalledProcessError as e:
         raise DeploymentError(f"Script execution failed: {e.stderr}")
 
+
 def terminate_pod(api_key: str, pod_id: str):
     query = f"""
     mutation {{
@@ -253,14 +259,17 @@ def terminate_pod(api_key: str, pod_id: str):
     return response
 
 def deploy_pod_from_config(api_key: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    gpu_id = config.get('gpu_id')
-    gpu_display_name = config.get('gpu')
-    image_name = config['image']
-    script_path = config['script']['path']
-    env_vars = config['script'].get('env', {})
-    local_dir = config['upload']['local_dir']
-    remote_dir = config['upload']['remote_dir']
-    ssh_key_path = os.path.expanduser(config['ssh']['key_path'])
+    project_name = config.get("project_name")
+    if not project_name:
+        raise ConfigurationError("Missing 'project_name' in config.")
+
+    # Infer remote workspace dynamically
+    remote_dir = config["upload"]["remote_dir"]
+
+    local_dir = config["upload"]["local_dir"]
+    script_path = config["script"]["path"]
+    env_vars = config["script"].get("env", {})
+    ssh_key_path = os.path.expanduser(config["ssh"]["key_path"])
 
     # Validate SSH key path
     if not os.path.isfile(ssh_key_path):
@@ -270,21 +279,21 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any]) -> Dict[str, An
     full_script_path = os.path.join(local_dir, os.path.basename(script_path))
     set_executable(full_script_path)
 
-    if gpu_id:
-        selected_gpu_id = gpu_id
+    if "gpu_id" in config:
+        selected_gpu_id = config["gpu_id"]
         rprint(f"[blue]Using GPU ID from config: {selected_gpu_id}[/blue]")
     else:
         # Get available GPUs
         gpus = get_gpus(api_key)
 
+        gpu_display_name_lower = config["gpu"].lower()
         selected_gpu_id = None
-        gpu_display_name_lower = gpu_display_name.lower()
         for gpu in gpus:
-            if gpu_display_name_lower in gpu['displayName'].lower() or gpu_display_name_lower in gpu['id'].lower():
-                selected_gpu_id = gpu['id']
+            if gpu_display_name_lower in gpu["displayName"].lower() or gpu_display_name_lower in gpu["id"].lower():
+                selected_gpu_id = gpu["id"]
                 break
         if not selected_gpu_id:
-            raise DeploymentError(f"GPU type '{gpu_display_name}' not found.")
+            raise DeploymentError(f"GPU type '{config['gpu']}' not found.")
 
     # Create a unique pod name
     import time
@@ -292,11 +301,10 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any]) -> Dict[str, An
 
     # Initialize pod_id for tracking
     pod_id = None
-
     try:
         # Create pod
-        pod = create_pod(api_key, pod_name, image_name, selected_gpu_id)
-        pod_id = pod['id']
+        pod = create_pod(api_key, pod_name, config["image"], selected_gpu_id)
+        pod_id = pod["id"]
         rprint(f"[green]Pod '{pod_name}' created successfully with ID: {pod_id}[/green]")
 
         # Wait for pod to be ready with runtime information
@@ -304,22 +312,57 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any]) -> Dict[str, An
         pod = wait_for_pod_running(api_key, pod_id)
 
         # Extract SSH details
-        runtime = pod.get('runtime', {})
-        ports = runtime.get('ports', [])
-        ssh_port_info = next((port for port in ports if port['privatePort'] == 22 and port['isIpPublic']), None)
+        runtime = pod.get("runtime", {})
+        ports = runtime.get("ports", [])
+        ssh_port_info = next((port for port in ports if port["privatePort"] == 22 and port["isIpPublic"]), None)
         if not ssh_port_info:
             raise DeploymentError("No public SSH port found for the pod.")
 
-        ssh_ip = ssh_port_info['ip']
-        ssh_port = ssh_port_info['publicPort']
+        ssh_ip = ssh_port_info["ip"]
+        ssh_port = ssh_port_info["publicPort"]
+
+        # Add SSH info here
+        ssh_command = f"ssh root@{ssh_ip} -p {ssh_port} -i ~/.ssh/id_ed25519"
+        rprint(f"\n[green]Pod ready for SSH access:[/green]")
+        rprint(f"[yellow]{ssh_command}[/yellow]")
+
+        # Save SSH info to file
+        ssh_info = {
+            "command": ssh_command,
+            "pod_id": pod_id,
+            "ip": ssh_ip,
+            "port": ssh_port
+        }
+
+        project_dir = config["upload"]["local_dir"]
+        with open(os.path.join(project_dir, ".pod_ssh"), "w") as f:
+            json.dump(ssh_info, f, indent=2)
 
         # Upload files
         upload_files_to_pod(api_key, pod, local_dir, remote_dir, ssh_key_path, ssh_ip, ssh_port)
 
         # Execute the bash script
-        execute_script_on_pod(ssh_key_path, ssh_ip, ssh_port, script_path, env_vars)
+        execute_script_on_pod(ssh_key_path, ssh_ip, ssh_port, os.path.basename(script_path), env_vars, remote_dir)
 
+        # After successful script execution
         rprint("[green]Deployment completed successfully![/green]")
+        rprint(f"\n[green]To connect to your pod:[/green]")
+        rprint(f"[yellow]{ssh_command}[/yellow]")
+
+        # Add SSH connection here
+        rprint("\n[yellow]Connecting to pod via SSH...[/yellow]")
+        try:
+            subprocess.run([
+                "ssh",
+                f"root@{ssh_ip}",
+                "-p", str(ssh_port),
+                "-i", ssh_key_path
+            ])
+
+        except Exception as e:
+            rprint(f"[red]Failed to establish SSH connection: {str(e)}[/red]")
+            rprint("[yellow]You can manually connect using the command above.[/yellow]")
+
         return pod
 
     except Exception as e:
@@ -332,6 +375,7 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any]) -> Dict[str, An
             except Exception as termination_error:
                 rprint(f"[red]Failed to terminate pod: {str(termination_error)}[/red]")
         sys.exit(1)
+
 
 def wait_for_pod_running(api_key: str, pod_id: str, timeout: int = 120, interval: int = 15) -> Dict[str, Any]:
     """
@@ -395,14 +439,29 @@ def automate_workflow(config_path: str):
         rprint(f"[red]Deployment Error: {str(e)}[/red]")
         sys.exit(1)
 
+import argparse
+
+DEFAULT_PROJECTS_DIR = "projects"
+
 def main():
     load_dotenv()
-    config_path = DEFAULT_CONFIG_PATH
+
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Deploy a RunPod project.")
+    parser.add_argument(
+        "--project",
+        required=True,
+        help="The project name. The script will look for the configuration in 'projects/{project_name}/config.yaml'.",
+    )
+    args = parser.parse_args()
+    project_name = args.project
+
+    # Construct the config path
+    config_path = os.path.join(DEFAULT_PROJECTS_DIR, project_name, "config.yaml")
 
     # Check if config.yaml exists
     if not os.path.isfile(config_path):
-        rprint(f"[red]Error: '{config_path}' not found in the current directory.[/red]")
-        rprint("[yellow]Please create a 'config.yaml' file based on the provided template.[/yellow]")
+        rprint(f"[red]Error: Config file not found at '{config_path}'.[/red]")
         sys.exit(1)
 
     # Start the automated workflow

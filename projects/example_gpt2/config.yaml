@@ -1,0 +1,18 @@
+# config.yaml
+project_name: example_gpt2
+provider: runpod
+gpu: A40
+image: runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
+
+script:
+  path: ./run_script.sh
+  env:
+    HF_HOME: /tmp/huggingface
+    CACHE_DIR: /root/hf_cache
+
+ssh:
+  key_path: ~/.ssh/id_ed25519
+
+upload:
+  local_dir: .
+  remote_dir: /root/workspace/example_gpt2
