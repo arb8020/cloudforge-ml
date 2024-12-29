@@ -11,10 +11,10 @@ goal: one-click deployment for hugging face models/datasets on arbitrary cloud c
   - huggingface: gpt2 training with tiny-shakespeare
 
 ##  use cases
-[x] custom projects: define your own projects and scripts to run flexible experiments with a little more setup overhead
-[ ] standard hf models/datasets: one-command deployment for training existing hf models on standard datasets
-[ ] custom models/datasets: deploy models that inherit from hf architectures, train using data formatted to hf dataset specs
-[ ] dev mode: immediate file upload and ssh in for maximum flexibility
+- [x] custom projects: define your own projects and scripts to run flexible experiments with a little more setup overhead
+- [ ] standard hf models/datasets: one-command deployment for training existing hf models on standard datasets
+- [ ] custom models/datasets: deploy models that inherit from hf architectures, train using data formatted to hf dataset specs
+- [ ] dev mode: immediate file upload and ssh in for maximum flexibility
 
 ## usage
 ### runpod setup
