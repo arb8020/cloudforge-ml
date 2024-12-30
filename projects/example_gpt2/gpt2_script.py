@@ -21,7 +21,7 @@ from transformers import Trainer, TrainingArguments
 from datasets import load_dataset
 
 # Load dataset
-dataset = load_dataset("tiny_shakespeare", cache_dir=cache_dir)
+dataset = load_dataset("tiny_shakespeare", cache_dir=cache_dir, accept_remote_code=True)
 
 # Load tokenizer and model
 tokenizer = GPT2Tokenizer.from_pretrained('gpt2')

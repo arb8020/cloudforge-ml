@@ -1,0 +1,14 @@
+gpu: A40
+image: runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
+project_name: example_hf
+provider: runpod
+script:
+  env:
+    CACHE_DIR: /workspace/example_hf/hf_cache
+    HF_HOME: /tmp/huggingface
+  path: ./run_script.sh
+ssh:
+  key_path: ~/.ssh/id_ed25519
+upload:
+  local_dir: .
+  remote_dir: /root/workspace/example_hf

@@ -1,0 +1,11 @@
+provider: runpod
+training:
+  batch_size: 32
+  epochs: 3
+  learning_rate: 3e-4
+  max_length: 128
+  save_steps: 10_000
+  save_limit: 2
+
+gpu: A40
+output_dir: ./trained_model

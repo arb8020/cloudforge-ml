@@ -1,0 +1,44 @@
+# log_config.yaml
+
+version: 1
+disable_existing_loggers: False
+
+formatters:
+  standard:
+    format: "%%(levelname)s - (message)s - %(asctime)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+
+  json:
+    (): json_formatter.JSONFormatter
+
+handlers:
+  stdout:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: standard # Use standard formatter for stdout
+    stream: ext://sys.stdout
+
+  stderr:
+    class: logging.StreamHandler
+    level: ERROR
+    formatter: standard # Use standard formatter for stderr
+    stream: ext://sys.stderr
+
+  file:
+    class: logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: json # Use JSON formatter for file
+    filename: "deployment.jsonl" # This will be dynamically set in the script
+    maxBytes: 10485760 # 10 MB
+    backupCount: 5
+    encoding: "utf8"
+
+loggers:
+  my_logger:
+    level: DEBUG
+    handlers: [stdout, stderr, file]
+    propagate: no
+
+root:
+  level: WARNING
+  handlers: [stderr, file]

@@ -12,9 +12,9 @@ goal: one-click deployment for hugging face models/datasets on arbitrary cloud c
 
 ##  use cases
 - [x] custom projects: define your own projects and scripts to run flexible experiments with a little more setup overhead
-- [ ] standard hf models/datasets: one-command deployment for training existing hf models on standard datasets
+- [x] standard hf models/datasets: one-command deployment for training existing hf models on standard datasets
 - [ ] custom models/datasets: deploy models that inherit from hf architectures, train using data formatted to hf dataset specs
-- [ ] dev mode: immediate file upload and ssh in for maximum flexibility
+- [ ] TBD
 
 ## usage
 ### runpod setup
@@ -27,6 +27,11 @@ goal: one-click deployment for hugging face models/datasets on arbitrary cloud c
 1. uv run initialize_project.py
 2. update the config.yaml, run_script.sh, script.py as desired
 3. uv run deploy_runpod.py
+4. ssh back into your instance to continue working (see .pod_ssh)
+
+### example huggingface workflow
+1. uv run hf_train.py --model= --dataset=
+4. ssh back into your instance to continue working (see .pod_ssh)
 
 ### example workflow in runpod_interactive
 1. create pod (nvidia a40)
@@ -41,28 +46,41 @@ goal: one-click deployment for hugging face models/datasets on arbitrary cloud c
 - [x] basic runpod integration
 - [x] project initialization
 - [x] file deployment
-- [x] development mode (auto-ssh after script execution)
-- [x] train gpt2 on tiny-shakespeare recipe
-
-[0/7] developer experience
-- [0/2] basic infra
-  - [ ] save outputs to file
-  - [ ] better monitoring
-- [0/5] more recipes (some of these might get moved down)
-  - [ ] git cloning
-  - [ ] multi-gpu recipes
-  - [ ] cifar speedrun
-  - [ ] model chat interface
-  - [ ] comfyui image gen
+- [x] auto-ssh after script execution
+- [x] one-command train existing hf model on existing hf dataset recipe (hf_train)
+- [x] git clone project and run code recipe (projects/example_cifar)
+- [ ] captures + send back logs
+- [ ] --keep-alive arg (default is to tear down on failed deploy or after sending logs)
+- [ ] configurable memory
+- [ ] clean up file structures/abstractions
 
 [0/3] huggingface integration
 - [ ] custom hf model template
 - [ ] custom hf dataset template
 - [ ] one command training
+- [ ] hyperparam overrides
 
-[0/4] platform/performance expansion
+[0/r] devops stuff
+- [ ] reading outputs while script running still delayed/clunky
+- [ ] wandb/etc integration (?)
+- [ ] spot instance + checkpointing support (use a spot instance, checkpoint and provision new spot if interrupt)
+- [ ] bug: runpod secrets doesn't work with exposed tcp port (had to encrypt + decrypt file)
+
+[0/6] cost/etc
+- [ ] budget parameters
+- [ ] cost estimation
 - [ ] vast.ai integration
 - [ ] provider abstraction layer
-- [ ] cost optimization features
+- [ ] cost optimization
 - [ ] aws/gcp/???
-- [ ] distributed training across pods (within one provider)
+
+[0/4] UX
+- [ ] more interactive project setup wizard
+- [ ] notebook support
+- [ ] high perf recipe (multi-gpu, fsdp + compile)
+- [ ] model chat recipe
+- [ ] comfyui recipe
+
+- [0/2] more recipes
+  - [ ] model chat interface
+  - [ ] comfyui image gen
