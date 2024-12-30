@@ -20,21 +20,25 @@ import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 import logging
+import signal
+import sys
 from logging_setup import setup_logging, get_logger
 from initialize_project import initialize_project
-from deploy_runpod import automate_workflow
+from deploy_runpod import automate_workflow, handle_signal
 import requests
 from cryptography.fernet import Fernet
 import json
 from typing import Optional
 
+# Load environment variables from .env file
 load_dotenv()
 
 def encrypt_env(config: dict) -> tuple[bytes, bytes]:
     """Encrypt needed env vars based on config."""
     needed_vars = {}
+    # Fixed the variable name from 'var' to 'v' in the list comprehension
     for var in [v[2:-1] for v in config.get('script', {}).get('env', {}).values()
-                if isinstance(v, str) and var.startswith('${') and var.endswith('}')] :
+                if isinstance(v, str) and v.startswith('${') and v.endswith('}')]:
         value = os.getenv(var)
         if not value:
             raise ValueError(f"Missing required env var: {var}")
@@ -237,7 +241,17 @@ def main():
     parser.add_argument("--model", required=True, help="HuggingFace model name")
     parser.add_argument("--dataset", required=True, help="HuggingFace dataset name")
     parser.add_argument("--config", help="Custom training config path")
+    # Added --keep-alive argument
+    parser.add_argument(
+        "--keep-alive",
+        action='store_true',
+        default=False,
+        help="If set, keeps the pod running and drops into an SSH session after training. Otherwise, terminates the pod after training."
+    )
     args = parser.parse_args()
+
+    # Extract the keep_alive flag
+    keep_alive = args.keep_alive
 
     # Validate model and dataset first
     hf_api_token = os.getenv("HF_API_KEY", "")
@@ -257,17 +271,35 @@ def main():
             import shutil
             shutil.rmtree(project_dir)
             logger.warning(f"Cleaned up project directory: {project_dir}")
-        return
+        sys.exit(1)  # Changed to sys.exit for consistency
 
     config = load_hf_config(args.config, logger) if args.config else load_hf_config(logger=logger)
     if not config:
         logger.error("Failed to load HF training config. Aborting workflow.")
-        return
+        sys.exit(1)
 
     initialize_project(project_name, logger)
     generate_training_script(project_dir, args.model, args.dataset, config, logger)
     update_project_config(project_dir, config, logger)
-    automate_workflow(os.path.join(project_dir, "config.yaml"), logger)
+
+    # Path to the updated config.yaml
+    config_yaml_path = os.path.join(project_dir, "config.yaml")
+
+    # Initialize a state dictionary to track pod_id and keep_alive
+    state = {
+        'pod_id': None,
+        'keep_alive': keep_alive
+    }
+
+    # Register signal handlers to ensure graceful shutdown
+    def signal_handler(signum, frame):
+        handle_signal(signum, frame, hf_api_token, logger, state)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Propagate the --keep-alive flag to automate_workflow
+    automate_workflow(config_yaml_path, logger, keep_alive, state)
 
 if __name__ == "__main__":
     main()

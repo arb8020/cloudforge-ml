@@ -17,6 +17,8 @@ import sys
 import subprocess
 import requests
 import yaml
+import argparse
+import signal
 from dotenv import load_dotenv
 from typing import Optional, Dict, Any
 from cryptography.fernet import Fernet
@@ -28,6 +30,7 @@ from logging_setup import setup_logging, get_logger
 # Constants
 API_URL = "https://api.runpod.io/graphql"
 DEFAULT_CONFIG_PATH = "config.yaml"
+DEFAULT_PROJECTS_DIR = "projects"
 
 # Exception Classes
 class ConfigurationError(Exception):
@@ -42,7 +45,7 @@ def ensure_log_directory(log_file_path):
         log_dir.mkdir(parents=True, exist_ok=True)
 
 def encrypt_env(config: dict) -> tuple[bytes, bytes]:
-    needed_vars = {var: os.getenv(var)
+    needed_vars = {var[2:-1]: os.getenv(var[2:-1])
                   for var in config['script']['env'].values()
                   if isinstance(var, str) and var.startswith('${') and var.endswith('}')}
     key = Fernet.generate_key()
@@ -297,7 +300,7 @@ def terminate_pod(api_key: str, pod_id: str, logger: logging.Logger):
     logger.info(f"Pod '{pod_id}' terminated successfully.")
     return response
 
-def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging.Logger) -> Dict[str, Any]:
+def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging.Logger, keep_alive: bool, state: Dict[str, Any]) -> Dict[str, Any]:
     project_name = config.get("project_name")
     if not project_name:
         logger.error("Missing 'project_name' in config.")
@@ -347,6 +350,7 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
         # Create pod
         pod = create_pod(api_key, pod_name, config["image"], selected_gpu_id, logger)
         pod_id = pod["id"]
+        state['pod_id'] = pod_id  # Update state for signal handler
 
         # Wait for pod to be ready with runtime information
         logger.info("Waiting for pod to be in RUNNING state with runtime information...")
@@ -364,13 +368,13 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
         ssh_port = ssh_port_info["publicPort"]
 
         # SSH command
-        ssh_command = f"ssh root@{ssh_ip} -p {ssh_port} -i ~/.ssh/id_ed25519"
+        ssh_command_str = f"ssh root@{ssh_ip} -p {ssh_port} -i {ssh_key_path}"
         logger.info("Pod ready for SSH access:")
-        logger.warning(f"{ssh_command}")
+        logger.warning(f"{ssh_command_str}")
 
         # Save SSH info to file
         ssh_info = {
-            "command": ssh_command,
+            "command": ssh_command_str,
             "pod_id": pod_id,
             "ip": ssh_ip,
             "port": ssh_port
@@ -388,21 +392,26 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
         execute_script_on_pod(ssh_key_path, ssh_ip, ssh_port, os.path.basename(script_path), env_vars, remote_dir, logger)
 
         # After successful script execution
-        logger.info("Deployment completed successfully!")
-        logger.warning(f"\nTo connect to your pod:\n{ssh_command}")
+        if keep_alive:
+            logger.info("Deployment completed successfully! Dropping into SSH session as '--keep-alive' is set.")
+            logger.warning(f"\nTo connect to your pod:\n{ssh_command_str}")
 
-        # Add SSH connection here
-        logger.warning("Connecting to pod via SSH...")
-        try:
-            subprocess.run([
-                "ssh",
-                f"root@{ssh_ip}",
-                "-p", str(ssh_port),
-                "-i", ssh_key_path
-            ])
-        except Exception as e:
-            logger.error(f"Failed to establish SSH connection: {str(e)}")
-            logger.warning("You can manually connect using the command above.")
+            # Connect to SSH
+            logger.warning("Connecting to pod via SSH...")
+            try:
+                subprocess.run([
+                    "ssh",
+                    f"root@{ssh_ip}",
+                    "-p", str(ssh_port),
+                    "-i", ssh_key_path
+                ])
+            except Exception as e:
+                logger.error(f"Failed to establish SSH connection: {str(e)}")
+                logger.warning("You can manually connect using the command above.")
+        else:
+            logger.info("Deployment completed successfully! Terminating the pod as '--keep-alive' is not set.")
+            terminate_pod(api_key, pod_id, logger)
+            logger.info("Pod terminated as per '--keep-alive' flag.")
 
         return pod
 
@@ -464,7 +473,7 @@ def wait_for_pod_running(api_key: str, pod_id: str, logger: logging.Logger, time
     logger.error("Timed out waiting for pod to reach RUNNING state with runtime information.")
     raise DeploymentError("Timed out waiting for pod to reach RUNNING state with runtime information.")
 
-def automate_workflow(config_path: str, logger: logging.Logger):
+def automate_workflow(config_path: str, logger: logging.Logger, keep_alive: bool, state: Dict[str, Any]):
     try:
         config = read_config(config_path, logger)
         validate_config(config, logger)
@@ -491,7 +500,115 @@ def automate_workflow(config_path: str, logger: logging.Logger):
         sys.exit(1)
 
     try:
-        pod = deploy_pod_from_config(api_key, config, logger)
+        pod = deploy_pod_from_config(api_key, config, logger, keep_alive, state)
     except DeploymentError as e:
         logger.error(f"Deployment Error: {str(e)}", exc_info=True)
         sys.exit(1)
+
+def handle_signal(signum, frame, api_key: str, logger: logging.Logger, state: Dict[str, Any]):
+    """
+    Signal handler to gracefully terminate the pod upon receiving interrupt signals.
+
+    Args:
+        signum (int): Signal number.
+        frame: Current stack frame.
+        api_key (str): RunPod API key.
+        logger (logging.Logger): Logger instance.
+        state (dict): Mutable dictionary containing deployment state.
+    """
+    logger.warning(f"Received signal {signum}. Initiating graceful shutdown...")
+    pod_id = state.get('pod_id')
+    keep_alive = state.get('keep_alive', False)
+    if pod_id:
+        if not keep_alive:
+            logger.info("Terminating pod as '--keep-alive' is not set.")
+            try:
+                terminate_pod(api_key, pod_id, logger)
+                logger.info("Pod terminated successfully.")
+            except DeploymentError as e:
+                logger.error(f"Failed to terminate pod during shutdown: {str(e)}")
+        else:
+            logger.info("Pod will remain running as '--keep-alive' is set.")
+    else:
+        logger.info("No pod to terminate.")
+    logger.info("Exiting the deployment script.")
+    sys.exit(0)
+
+def main():
+    # Load environment variables from .env file
+    load_dotenv()
+
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Deploy a RunPod project.")
+    parser.add_argument(
+        "--project",
+        required=True,
+        help="The project name. The script will look for the configuration in 'projects/{project_name}/config.yaml'.",
+    )
+    parser.add_argument(
+        "--keep-alive",
+        action='store_true',
+        default=False,
+        help="If set, keeps the pod running and drops into an SSH session after script execution. Otherwise, terminates the pod after the script runs."
+    )
+    args = parser.parse_args()
+    project_name = args.project
+    keep_alive = args.keep_alive
+
+    # Construct the config path
+    config_path = os.path.join(DEFAULT_PROJECTS_DIR, project_name, "config.yaml")
+
+    # Check if config.yaml exists
+    if not os.path.isfile(config_path):
+        print(f"Error: Config file not found at '{config_path}'.")  # Use print since logging isn't set up yet
+        sys.exit(1)
+
+    # Initialize a state dictionary to track pod_id and keep_alive
+    state = {
+        'pod_id': None,
+        'keep_alive': keep_alive
+    }
+
+    # Temporarily set up basic logging to capture signals before full logging is initialized
+    basic_logger = logging.getLogger('basic_logger')
+    basic_logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter('[%(levelname)s] %(message)s')
+    handler.setFormatter(formatter)
+    basic_logger.addHandler(handler)
+
+    # Load the configuration to get the API key for signal handling
+    try:
+        config = read_config(config_path, basic_logger)
+        validate_config(config, basic_logger)
+    except ConfigurationError as e:
+        basic_logger.error(f"Configuration Error: {str(e)}")
+        sys.exit(1)
+
+    api_key = os.getenv("RUNPOD_API_KEY")
+    if not api_key:
+        basic_logger.error("Error: RUNPOD_API_KEY environment variable not found.")
+        sys.exit(1)
+
+    # Register signal handlers
+    signal.signal(signal.SIGINT, lambda s, f: handle_signal(s, f, api_key, basic_logger, state))
+    signal.signal(signal.SIGTERM, lambda s, f: handle_signal(s, f, api_key, basic_logger, state))
+
+    # Set up logging
+    project_dir = os.path.dirname(config_path)
+    log_file_path = os.path.join(project_dir, "deployment.jsonl")
+    ensure_log_directory(log_file_path)
+    setup_logging(log_file_path)  # Initialize logging with the log file path
+    logger = get_logger('my_logger')  # Retrieve the logger
+
+    # Update the state with keep_alive
+    state['keep_alive'] = keep_alive
+
+    logger.info(f"Starting deployment for project '{project_name}' with config at '{config_path}'.")
+    logger.info(f"'--keep-alive' is set to {'True' if keep_alive else 'False'}.")
+
+    # Start the automated workflow
+    automate_workflow(config_path, logger, keep_alive, state)
+
+if __name__ == "__main__":
+    main()

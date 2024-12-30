@@ -2,10 +2,10 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "pyyaml",
-#     "rich",
-#     "logging",
+#     "python-dotenv"
 # ]
 # ///
+
 # initialize_project.py
 
 import os
@@ -13,16 +13,27 @@ import yaml
 import logging
 import argparse
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Import logging setup
 from logging_setup import setup_logging, get_logger
 
 def ensure_log_directory(log_file_path):
+    """
+    Ensures that the directory for the log file exists.
+    """
     log_dir = Path(log_file_path).parent
     if not log_dir.exists():
         log_dir.mkdir(parents=True, exist_ok=True)
 
 def initialize_project(project_name: str, logger: logging.Logger):
+    """
+    Initializes a new RunPod project by creating necessary directories and files.
+
+    Args:
+        project_name (str): The name of the project to initialize.
+        logger (logging.Logger): The logger instance for logging messages.
+    """
     # Define project directory and default files
     project_dir = os.path.join("projects", project_name)
     config_path = os.path.join(project_dir, "config.yaml")
@@ -103,12 +114,17 @@ if __name__ == "__main__":
     logger.info(f"Project '{project_name}' initialized successfully in {project_dir}.")
 
 def main():
-    # Define log file path for initialization logs
-    log_file_path = "initialize_project.log"  # Can be adjusted as needed
-    ensure_log_directory(log_file_path)
-    setup_logging(log_file_path)  # Initialize logging
+    """
+    The main function to initialize a new RunPod project.
+    """
+    # Load environment variables from .env file if present
+    load_dotenv()
+
+    # Set up logging without a log file
+    setup_logging(log_file_path=None)  # Modify setup_logging to handle None
     logger = get_logger('my_logger')  # Retrieve the logger
 
+    # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Initialize a new RunPod project.")
     parser.add_argument("project_name", help="The name of the project to initialize.")
     args = parser.parse_args()
