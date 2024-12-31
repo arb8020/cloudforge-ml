@@ -472,7 +472,7 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
                 logger.info("Pod terminated successfully.")
             except Exception as termination_error:
                 logger.error(f"Failed to terminate pod: {str(termination_error)}", exc_info=True)
-                logger.error(f"Terminate your pod manually at https://www.runpod.io/console/pods")
+                logger.error(f"IMPORTANT: TERMINATE YOUR POD MANUALLY AT https://www.runpod.io/console/pods")
         sys.exit(1)
 
 def wait_for_pod_running(api_key: str, pod_id: str, logger: logging.Logger, timeout: int = 120, interval: int = 15) -> Dict[str, Any]:
@@ -576,7 +576,7 @@ def handle_signal(signum, frame, api_key: str, logger: logging.Logger, state: Di
                 logger.info("Pod terminated successfully.")
             except DeploymentError as e:
                 logger.error(f"Failed to terminate pod during shutdown: {str(e)}")
-                logger.error(f"Terminate your pod manually at https://www.runpod.io/console/pods")
+                logger.error(f"IMPORTANT: TERMINATE YOUR POD MANUALLY AT https://www.runpod.io/console/pods")
         else:
             logger.info("Pod will remain running as '--keep-alive' is set.")
     else:

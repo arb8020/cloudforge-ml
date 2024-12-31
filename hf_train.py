@@ -376,13 +376,6 @@ def main():
 
     project_name = f"{model_name}_{dataset_name}"
     project_dir = os.path.join("projects", project_name)  # Use string path
-    if is_local_model or is_local_dataset:
-        model_path, dataset_path = copy_local_files(
-            project_dir,
-            args.model if is_local_model else None,
-            args.dataset if is_local_dataset else None,
-            logger
-        )
 
     if is_local_model or is_local_dataset:
         model_path, dataset_path = copy_local_files(
