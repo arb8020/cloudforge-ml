@@ -8,4 +8,5 @@ cd /root/workspace/example_gpt2
 pip install uv
 
 # Run the GPT-2 script
-uv run gpt2_script.py
+script -qec "uv run gpt2_script.py" /dev/null
+# uv run gpt2_script.py

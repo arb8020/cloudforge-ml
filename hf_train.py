@@ -248,6 +248,21 @@ if __name__ == "__main__":
         f.write(script_content)
     logger.info(f"Generated training script with print statements at {script_path}")
 
+def copy_local_files(project_dir: str, model_path: Optional[str], dataset_path: Optional[str], logger: logging.Logger) -> tuple[str, str]:
+    """Copies local model/dataset files to project directory as model.py and dataset.py"""
+    if model_path and os.path.isfile(model_path):
+        dst = os.path.join(project_dir, "model.py")
+        shutil.copy2(model_path, dst)
+        logger.info(f"Copied local model {model_path} to {dst}")
+        model_path = "./model.py"
+
+    if dataset_path and os.path.isfile(dataset_path):
+        dst = os.path.join(project_dir, "dataset.py")
+        shutil.copy2(dataset_path, dst)
+        logger.info(f"Copied local dataset {dataset_path} to {dst}")
+        dataset_path = "./dataset.py"
+
+    return model_path, dataset_path
 
 def load_hf_config(config_path="config/hf_train.yaml", logger: logging.Logger = None) -> Optional[dict]:
     if not os.path.exists(config_path):
@@ -268,6 +283,10 @@ def update_project_config(project_dir: str, hf_config: dict, logger: logging.Log
         "project_name": project_name,
         "provider": hf_config["provider"],
         "gpu": hf_config["gpu"],
+        "budget": {
+            "max_dollars": hf_config['budget']['max_dollars'],
+            "max_hours": hf_config['budget']['max_hours'],
+        },
         "image": "runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04",
         "script": {
             "path": "./run_script.sh",
@@ -356,7 +375,27 @@ def main():
        dataset_name = args.dataset.split('/')[-1]
 
     project_name = f"{model_name}_{dataset_name}"
-    project_dir = os.path.join("projects", project_name)
+    project_dir = os.path.join("projects", project_name)  # Use string path
+    if is_local_model or is_local_dataset:
+        model_path, dataset_path = copy_local_files(
+            project_dir,
+            args.model if is_local_model else None,
+            args.dataset if is_local_dataset else None,
+            logger
+        )
+
+    if is_local_model or is_local_dataset:
+        model_path, dataset_path = copy_local_files(
+            project_dir,
+            args.model if is_local_model else None,
+            args.dataset if is_local_dataset else None,
+            logger
+        )
+        # Update paths for script generation
+        if is_local_model:
+            args.model = model_path
+        if is_local_dataset:
+            args.dataset = dataset_path
 
     if not (model_valid and dataset_valid):
         logger.error("Validation failed. Aborting workflow.")

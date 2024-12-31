@@ -64,22 +64,15 @@ goal: one-click deployment for hugging face models/datasets on arbitrary cloud c
 - [ ] clean up file structures/abstractions
 - [ ] ruff/astral
 
-[0/3] huggingface integration
-- [ ] example custom hf model template
-- [ ] examle custom hf dataset template
-- [ ] one command training of custom hf model + dataset
-- [ ] training hyperparam overrides
-
 [0/5] devops stuff
 - [ ] testing
-- [ ] reading outputs while script running still delayed/clunky
+- [ ] tqdm/etc interaction with output is a little weird
 - [ ] smarter dependency management (when to load/not load sentencepiece, etc)
-- [ ] wandb/etc integration (?)
 - [ ] spot instance + checkpointing support (use a spot instance, checkpoint and provision new spot if interrupt)
-- [ ] bug: runpod secrets doesn't work with exposed tcp port (had to encrypt + decrypt file)
+- [ ] runpod secrets doesn't work with exposed tcp port (currently encrypt/decrypt .env file)
+- [ ] wandb/etc integration (?)
 
 [0/6] cost/etc
-- [ ] budget parameters
 - [ ] cost estimation
 - [ ] vast.ai integration
 - [ ] provider abstraction layer

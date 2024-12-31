@@ -49,6 +49,10 @@ def initialize_project(project_name: str, logger: logging.Logger):
         "project_name": project_name,
         "provider": "runpod",
         "gpu": "A40",
+        "budget": {
+            "max_dollars": 10,
+            "max_hours": 4,
+        },
         "image": "runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04",
         "script": {
             "path": "./run_script.sh",
@@ -83,7 +87,7 @@ cd /root/workspace/{project_name}
 # Install uv
 pip install uv
 # Run some script
-uv run script.py
+script -qec "uv run script.py" /dev/null
 echo "Running script for {project_name}"
 """
     if not os.path.exists(script_path):

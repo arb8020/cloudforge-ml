@@ -182,7 +182,7 @@ def read_config(config_path: str, logger: logging.Logger) -> Dict[str, Any]:
             raise ConfigurationError(f"Error parsing YAML file: {str(e)}")
 
 def validate_config(config: Dict[str, Any], logger: logging.Logger):
-    required_fields = ['provider', 'gpu', 'image', 'script', 'ssh', 'upload']
+    required_fields = ['provider', 'gpu', 'image', 'script', 'ssh', 'upload', 'budget']
     for field in required_fields:
         if field not in config:
             logger.error(f"Missing required field in config: {field}")
@@ -198,6 +198,10 @@ def validate_config(config: Dict[str, Any], logger: logging.Logger):
     if 'key_path' not in config['ssh']:
         logger.error("Missing 'key_path' under 'ssh' in config.")
         raise ConfigurationError("Missing 'key_path' under 'ssh' in config.")
+    if 'budget' in config:
+        if 'max_dollars' not in config['budget'] or 'max_hours' not in config['budget']:
+            logger.error("Missing 'max_dollars' or 'max_hours' under 'budget' in config.")
+            raise ConfigurationError("Missing 'max_dollars' or 'max_hours' under 'budget' in config.")
 
     logger.debug("Configuration validated successfully.")
 
@@ -300,6 +304,41 @@ def terminate_pod(api_key: str, pod_id: str, logger: logging.Logger):
     logger.info(f"Pod '{pod_id}' terminated successfully.")
     return response
 
+def monitor_pod(api_key: str, pod_id: str, config: Dict[str, Any], state: Dict[str, Any], logger: logging.Logger):
+    import time
+    start_time = time.time()
+
+    while True:
+        try:
+            pods = get_pod_status(api_key, logger)
+            pod = next((p for p in pods if p['id'] == pod_id), None)
+
+            if not pod:
+                logger.error(f"Pod {pod_id} not found during monitoring")
+                break
+
+            hours_elapsed = (time.time() - start_time) / 3600
+            cost = hours_elapsed * float(pod['costPerHr'])
+
+            # Check budgets
+            if hours_elapsed > config['budget']['max_hours']:
+                logger.warning(f"Time budget exceeded: {hours_elapsed:.1f} hours")
+                if not state['keep_alive']:
+                    terminate_pod(api_key, pod_id, logger)
+                break
+
+            if cost > config['budget']['max_dollars']:
+                logger.warning(f"Cost budget exceeded: ${cost:.2f}")
+                if not state['keep_alive']:
+                    terminate_pod(api_key, pod_id, logger)
+                break
+
+            time.sleep(60)  # Check every minute
+
+        except Exception as e:
+            logger.error(f"Error in pod monitoring: {str(e)}")
+            break
+
 def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging.Logger, keep_alive: bool, state: Dict[str, Any]) -> Dict[str, Any]:
     project_name = config.get("project_name")
     if not project_name:
@@ -350,7 +389,16 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
         # Create pod
         pod = create_pod(api_key, pod_name, config["image"], selected_gpu_id, logger)
         pod_id = pod["id"]
-        state['pod_id'] = pod_id  # Update state for signal handler
+        state['pod_id'] = pod_id
+
+        # Start monitor thread
+        import threading
+        monitor_thread = threading.Thread(
+            target=monitor_pod,
+            args=(api_key, pod_id, config, state, logger),
+            daemon=True
+        )
+        monitor_thread.start()
 
         # Wait for pod to be ready with runtime information
         logger.info("Waiting for pod to be in RUNNING state with runtime information...")
@@ -424,6 +472,7 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
                 logger.info("Pod terminated successfully.")
             except Exception as termination_error:
                 logger.error(f"Failed to terminate pod: {str(termination_error)}", exc_info=True)
+                logger.error(f"Terminate your pod manually at https://www.runpod.io/console/pods")
         sys.exit(1)
 
 def wait_for_pod_running(api_key: str, pod_id: str, logger: logging.Logger, timeout: int = 120, interval: int = 15) -> Dict[str, Any]:
@@ -527,6 +576,7 @@ def handle_signal(signum, frame, api_key: str, logger: logging.Logger, state: Di
                 logger.info("Pod terminated successfully.")
             except DeploymentError as e:
                 logger.error(f"Failed to terminate pod during shutdown: {str(e)}")
+                logger.error(f"Terminate your pod manually at https://www.runpod.io/console/pods")
         else:
             logger.info("Pod will remain running as '--keep-alive' is set.")
     else:

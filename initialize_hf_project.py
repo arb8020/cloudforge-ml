@@ -150,6 +150,10 @@ class SyntheticDataset(Dataset):
    config_path = os.path.join(project_dir, "config.yaml")
    config_template = '''
 provider: runpod
+gpu: A40
+budget:
+ max_dollars: 10
+ max_hours: 4
 training:
  batch_size: 8  # small for testing
  epochs: 2
@@ -157,7 +161,6 @@ training:
  max_length: 128
  save_steps: 100
  save_limit: 2
-gpu: A40  # or whatever's available
 output_dir: ./trained_model
 '''
 

@@ -9,3 +9,6 @@ training:
 
 gpu: A40
 output_dir: ./trained_model
+budget:
+  max_dollars: 10
+  max_hours: 4
