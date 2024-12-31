@@ -29,6 +29,7 @@ import requests
 from cryptography.fernet import Fernet
 import json
 from typing import Optional
+import shutil
 
 # Load environment variables from .env file
 load_dotenv()
@@ -86,8 +87,17 @@ def validate_dataset_with_api(dataset_name: str, api_token: str, logger: logging
         logger.error(f"Request error while validating dataset '{dataset_name}': {e}", exc_info=True)
         return False
 
-def generate_training_script(project_dir: str, model: str, dataset: str, config: dict, logger: logging.Logger):
+def generate_training_script(
+    project_dir: str,
+    model: str,
+    dataset: str,
+    config: dict,
+    logger: logging.Logger,
+    is_local_model: bool = False,
+    is_local_dataset: bool = False
+):
     script_path = os.path.join(project_dir, "script.py")
+
     script_content = f'''# /// script
 # requires-python = ">=3.13"
 # dependencies = [
@@ -95,13 +105,16 @@ def generate_training_script(project_dir: str, model: str, dataset: str, config:
 #     "transformers",
 #     "datasets>=2.14.6",
 #     "accelerate",
-#     "cryptography"
+#     "cryptography",
 # ]
 # ///
 
 import json
 import os
 from cryptography.fernet import Fernet
+import torch
+from transformers import AutoTokenizer, Trainer, TrainingArguments, DataCollatorForLanguageModeling, AutoModelForCausalLM
+from datasets import load_dataset
 
 def setup_env():
     with open('.env.encrypted', 'rb') as f:
@@ -111,78 +124,130 @@ def setup_env():
 
     cipher = Fernet(key)
     env_vars = json.loads(cipher.decrypt(encrypted))
-    for k,v in env_vars.items():
+    for k, v in env_vars.items():
         os.environ[k] = v
 
-setup_env()
+def main():
+    print("Starting training script.")
 
-os.environ["HF_HOME"] = "/tmp/huggingface"
-cache_dir = "/root/hf_cache"
-os.makedirs(cache_dir, exist_ok=True)
+    setup_env()
+    print("Environment variables loaded and decrypted.")
 
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments, DataCollatorForLanguageModeling
-from datasets import load_dataset
+    os.environ["HF_HOME"] = "/tmp/huggingface"
+    cache_dir = "/root/hf_cache"
+    os.makedirs(cache_dir, exist_ok=True)
+    print(f"Cache directory set at {{cache_dir}}.")
 
-# Load model and tokenizer
-token = os.getenv('HF_API_KEY')
-model = AutoModelForCausalLM.from_pretrained("{model}", token=token)
-tokenizer = AutoTokenizer.from_pretrained("{model}", token=token)
+    token = os.getenv('HF_API_KEY')
+    if not token:
+        print("Error: HF_API_KEY not found in environment variables.")
+        raise EnvironmentError("HF_API_KEY not set.")
 
-if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
+    # Model, tokenizer and dataset setup
+    if {is_local_model}:
+        print(f"Loading local model from {model}.")
+        import sys
+        sys.path.append(os.path.dirname("{model}"))
+        from model import TinyLLM, TinyLLMConfig
+        config_model = TinyLLMConfig()
+        model = TinyLLM(config_model)
+        print("Local model loaded successfully.")
 
-# Load dataset
-dataset = load_dataset("{dataset}", cache_dir=cache_dir)
+        if {is_local_dataset}:
+            print(f"Loading local dataset from {dataset}.")
+            sys.path.append(os.path.dirname("{dataset}"))
+            from dataset import SyntheticDataset
+            dataset = SyntheticDataset("gpt2")
+            tokenizer = dataset.tokenizer
+            tokenized_dataset = dataset
+            print("Local dataset loaded successfully.")
+        else:
+            print(f"Loading dataset '{{dataset}}' from Hugging Face.")
+            tokenizer = AutoTokenizer.from_pretrained("gpt2", use_auth_token=token)
+            dataset = load_dataset("{dataset}", cache_dir=cache_dir)
+            tokenized_dataset = dataset['train'].map(
+                lambda x: tokenizer(x['text'], truncation=True, padding='max_length', max_length=128),
+                batched=True,
+                remove_columns=dataset['train'].column_names
+            )
+            print("Dataset loaded and tokenized successfully.")
+    else:
+        print(f"Loading model '{{model}}' from Hugging Face.")
+        model = AutoModelForCausalLM.from_pretrained("{model}", use_auth_token=token)
+        tokenizer = AutoTokenizer.from_pretrained("{model}", use_auth_token=token)
+        print("Model and tokenizer loaded successfully.")
 
-def tokenize(examples):
-    outputs = tokenizer(
-        examples['text'],
-        truncation=True,
-        padding='max_length',
-        max_length={config['training']['max_length']},
-        return_tensors='pt'
+        if {is_local_dataset}:
+            print(f"Loading local dataset from {dataset}.")
+            sys.path.append(os.path.dirname("{dataset}"))
+            from dataset import SyntheticDataset
+            dataset = SyntheticDataset(tokenizer.name_or_path)
+            tokenized_dataset = dataset
+            print("Local dataset loaded successfully.")
+        else:
+            print(f"Loading dataset '{{dataset}}' from Hugging Face.")
+            dataset = load_dataset("{dataset}", cache_dir=cache_dir)
+            tokenized_dataset = dataset['train'].map(
+                lambda x: tokenizer(x['text'], truncation=True, padding='max_length', max_length=128),
+                batched=True,
+                remove_columns=dataset['train'].column_names
+            )
+            print("Dataset loaded and tokenized successfully.")
+
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        print("Pad token was None. Set pad_token to eos_token.")
+
+    # Data collator
+    data_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False
     )
-    outputs['labels'] = outputs['input_ids'].clone()
-    return outputs
+    print("Data collator initialized.")
 
-tokenized_dataset = dataset['train'].map(
-    tokenize,
-    batched=True,
-    remove_columns=dataset['train'].column_names
-)
+    # Training arguments
+    training_args = TrainingArguments(
+        output_dir="{config['output_dir']}",
+        overwrite_output_dir=True,
+        num_train_epochs={config['training']['epochs']},
+        per_device_train_batch_size={config['training']['batch_size']},
+        learning_rate={config['training']['learning_rate']},
+        save_steps={config['training']['save_steps']},
+        save_total_limit={config['training']['save_limit']},
+        logging_dir="./logs",
+        logging_steps=10,
+        report_to="none"  # Disable default reporting to avoid conflicts
+    )
+    print("Training arguments set.")
 
-# Data collator
-data_collator = DataCollatorForLanguageModeling(
-    tokenizer=tokenizer,
-    mlm=False
-)
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=tokenized_dataset,
+        data_collator=data_collator
+    )
+    print("Trainer initialized.")
+    print("Model vocab size:", model.config.vocab_size)
+    print("Tokenizer vocab size:", tokenizer.vocab_size)
 
-# Training arguments
-training_args = TrainingArguments(
-    output_dir="{config['output_dir']}",
-    overwrite_output_dir=True,
-    num_train_epochs={config['training']['epochs']},
-    per_device_train_batch_size={config['training']['batch_size']},
-    learning_rate={config['training']['learning_rate']},
-    save_steps={config['training']['save_steps']},
-    save_total_limit={config['training']['save_limit']},
-)
+    print("Starting training.")
+    trainer.train()
 
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=tokenized_dataset,
-    data_collator=data_collator
-)
+    print("Training completed.")
 
-trainer.train()
-trainer.save_model()
-tokenizer.save_pretrained("{config['output_dir']}")
+    print("Saving model.")
+    trainer.save_model()
+    tokenizer.save_pretrained("{config['output_dir']}")
+    print(f"Model and tokenizer saved to {config['output_dir']}.")
+
+if __name__ == "__main__":
+    main()
 '''
+
     with open(script_path, 'w') as f:
         f.write(script_content)
-    logger.info(f"Generated training script at {script_path}")
+    logger.info(f"Generated training script with print statements at {script_path}")
+
 
 def load_hf_config(config_path="config/hf_train.yaml", logger: logging.Logger = None) -> Optional[dict]:
     if not os.path.exists(config_path):
@@ -238,8 +303,16 @@ def main():
     logger = get_logger('my_logger')  # Retrieve the logger
 
     parser = argparse.ArgumentParser(description="Train HuggingFace models on RunPod")
-    parser.add_argument("--model", required=True, help="HuggingFace model name")
-    parser.add_argument("--dataset", required=True, help="HuggingFace dataset name")
+    parser.add_argument(
+            "--model",
+            required=True,
+            help="HuggingFace model name or path to local model.py"
+        )
+    parser.add_argument(
+        "--dataset",
+        required=True,
+        help="HuggingFace dataset name or path to local dataset.py"
+    )
     parser.add_argument("--config", help="Custom training config path")
     # Added --keep-alive argument
     parser.add_argument(
@@ -254,14 +327,34 @@ def main():
     keep_alive = args.keep_alive
 
     # Validate model and dataset first
+    is_local_model = os.path.isfile(args.model)
+    is_local_dataset = os.path.isfile(args.dataset)
+
     hf_api_token = os.getenv("HF_API_KEY", "")
+    if not is_local_model:
+        logger.info(f"Validating model '{args.model}'...")
+        model_valid = validate_model_with_api(args.model, hf_api_token, logger)
+    else:
+        model_valid = True
+        logger.info(f"Using local model from {args.model}")
 
-    logger.info(f"Validating model '{args.model}' and dataset '{args.dataset}'...")
-    model_valid = validate_model_with_api(args.model, hf_api_token, logger)
-    dataset_valid = validate_dataset_with_api(args.dataset, hf_api_token, logger)
+    if not is_local_dataset:
+        logger.info(f"Validating  dataset '{args.dataset}'...")
+        dataset_valid = validate_dataset_with_api(args.dataset, hf_api_token, logger)
+    else:
+        dataset_valid = True
+        logger.info(f"Using local dataset from {args.dataset}")
 
-    model_name = args.model.split('/')[-1]
-    dataset_name = args.dataset.split('/')[-1]
+    if os.path.isfile(args.model):
+       model_name = Path(args.model).stem  # gets filename without extension
+    else:
+       model_name = args.model.split('/')[-1]
+
+    if os.path.isfile(args.dataset):
+       dataset_name = Path(args.dataset).stem
+    else:
+       dataset_name = args.dataset.split('/')[-1]
+
     project_name = f"{model_name}_{dataset_name}"
     project_dir = os.path.join("projects", project_name)
 
@@ -279,7 +372,7 @@ def main():
         sys.exit(1)
 
     initialize_project(project_name, logger)
-    generate_training_script(project_dir, args.model, args.dataset, config, logger)
+    generate_training_script(project_dir, args.model, args.dataset, config, logger, is_local_model, is_local_dataset)
     update_project_config(project_dir, config, logger)
 
     # Path to the updated config.yaml

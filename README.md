@@ -11,10 +11,9 @@ goal: one-click deployment for hugging face models/datasets on arbitrary cloud c
   - huggingface: gpt2 training with tiny-shakespeare
 
 ##  use cases
-- [x] custom projects: define your own projects and scripts to run flexible experiments with a little more setup overhead
-- [x] standard hf models/datasets: one-command deployment for training existing hf models on standard datasets
-- [ ] custom models/datasets: deploy models that inherit from hf architectures, train using data formatted to hf dataset specs
-- [ ] TBD
+- custom projects: define your own projects and scripts to run flexible experiments with a little setup overhead
+- standard hf models/datasets: one-command deployment for training existing hf models on standard datasets
+- custom models/datasets: deploy models that inherit from hf architectures, train using data formatted to hf dataset specs
 
 ## usage
 ### runpod setup
@@ -23,15 +22,25 @@ goal: one-click deployment for hugging face models/datasets on arbitrary cloud c
 3. make ssh key: `ssh-keygen -t ed25519 -C "your_email@example.com"`
 4. add key: settings > ssh keys
 
-### example automated workflow
-1. uv run initialize_project.py
+### example custom workflow
+1. uv run initialize_project.py  project_name
 2. update the config.yaml, run_script.sh, script.py as desired
-3. uv run deploy_runpod.py
-4. ssh back into your instance to continue working (see .pod_ssh)
+3. uv run deploy_runpod.py --project=project_name
+4. use --keep-alive to ssh into the instance after running the script
+
+### huggingface setup
+5. if planning to use gated models, add your huggingface token to HF_API_KEY=your_key_here
 
 ### example huggingface workflow
-1. uv run hf_train.py --model= --dataset=
-4. ssh back into your instance to continue working (see .pod_ssh)
+1. uv run initialize_hf_project.py project_name
+2. adjust your model and dataset code
+3. uv run hf_train.py --model=./projects/project_name/my_hf_model.py --dataset=./projects/project_name/my_hf_dataset.py
+4. use --keep-alive to ssh into the instance after running the script
+
+### example custom huggingface workflow
+1. uv run hf_train.py --model=openai-community/gpt2 --dataset=karpathy/tiny-shakespeare (use hf defined names)
+2. use --keep-alive to ssh into the instance after running the script
+
 
 ### example workflow in runpod_interactive
 1. create pod (nvidia a40)
@@ -49,19 +58,22 @@ goal: one-click deployment for hugging face models/datasets on arbitrary cloud c
 - [x] auto-ssh after script execution
 - [x] one-command train existing hf model on existing hf dataset recipe (hf_train)
 - [x] git clone project and run code recipe (projects/example_cifar)
-- [ ] captures + send back logs
-- [ ] --keep-alive arg (default is to tear down on failed deploy or after sending logs)
-- [ ] configurable memory
+- [x] captures + send back logs
+- [x] --keep-alive arg (default is to tear down on failed deploy or after sending logs)
+- [ ] easier to kill a keep alive pod
 - [ ] clean up file structures/abstractions
+- [ ] ruff/astral
 
 [0/3] huggingface integration
-- [ ] custom hf model template
-- [ ] custom hf dataset template
-- [ ] one command training
-- [ ] hyperparam overrides
+- [ ] example custom hf model template
+- [ ] examle custom hf dataset template
+- [ ] one command training of custom hf model + dataset
+- [ ] training hyperparam overrides
 
-[0/r] devops stuff
+[0/5] devops stuff
+- [ ] testing
 - [ ] reading outputs while script running still delayed/clunky
+- [ ] smarter dependency management (when to load/not load sentencepiece, etc)
 - [ ] wandb/etc integration (?)
 - [ ] spot instance + checkpointing support (use a spot instance, checkpoint and provision new spot if interrupt)
 - [ ] bug: runpod secrets doesn't work with exposed tcp port (had to encrypt + decrypt file)
