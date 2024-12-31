@@ -1,3 +1,6 @@
+.encrypted
+.key
+.DS_STORE
 .jsonl
 .log
 .env

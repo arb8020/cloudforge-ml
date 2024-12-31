@@ -1,6 +1,8 @@
 # cloudforge-ml
 goal: one-click deployment for hugging face models/datasets on arbitrary cloud compute platforms
 
+[demo.gif]
+
 ## current status
 - supported providers: runpod
 - low-friction workflows
@@ -9,83 +11,68 @@ goal: one-click deployment for hugging face models/datasets on arbitrary cloud c
   - deploy files via scp and run your scripts with one command using deploy_runpod.py
 - example recipes
   - huggingface: gpt2 training with tiny-shakespeare
+  - custom models: deploy models that inherit from hf architectures
+  - custom projects: define your own training scripts with minimal setup
 
-##  use cases
-- custom projects: define your own projects and scripts to run flexible experiments with a little setup overhead
-- standard hf models/datasets: one-command deployment for training existing hf models on standard datasets
-- custom models/datasets: deploy models that inherit from hf architectures, train using data formatted to hf dataset specs
+## quick start
+### standard workflow
+```bash
+# train any HF model on any dataset with automatic cost tracking
+uv run hf_train.py --model openai-community/gpt2 --dataset karpathy/tiny-shakespeare
 
-## usage
+# or use your own model/dataset
+uv run initialize_hf_project.py my_project
+uv run hf_train.py --model ./projects/my_project/model.py --dataset ./projects/my_project/dataset.py
+```
+
+### custom workflow
+```bash
+# initialize project
+uv run initialize_project.py my_project
+
+# update config.yaml, run_script.sh, script.py, files to scp over as needed
+# check out example_cifar to see how you might clone and run a personal repository
+uv run deploy_runpod.py --project my_project
+```
+
 ### runpod setup
 1. get api key: settings > api keys
 2. create .env: `RUNPOD_API_KEY=your_key_here`
 3. make ssh key: `ssh-keygen -t ed25519 -C "your_email@example.com"`
 4. add key: settings > ssh keys
 
-### example custom workflow
-1. uv run initialize_project.py  project_name
-2. update the config.yaml, run_script.sh, script.py as desired
-3. uv run deploy_runpod.py --project=project_name
-4. use --keep-alive to ssh into the instance after running the script
+## features
+- automatic cost tracking and budget controls
+- graceful error handling and cleanup
+- environment and SSH key management
+- modular design for provider expansion
 
-### huggingface setup
-5. if planning to use gated models, add your huggingface token to HF_API_KEY=your_key_here
+## roadmap
+- [5/6] core features
+  - [x] runpod integration
+  - [x] project initialization
+  - [x] file deployment
+  - [x] auto-ssh after script execution
+  - [x] one-command training for HF models/datasets
+  - [ ] cleaner abstractions
 
-### example huggingface workflow
-1. uv run initialize_hf_project.py project_name
-2. adjust your model and dataset code
-3. uv run hf_train.py --model=./projects/project_name/my_hf_model.py --dataset=./projects/project_name/my_hf_dataset.py
-4. use --keep-alive to ssh into the instance after running the script
+- [0/4] research features
+  - [ ] advanced training (FSDP, checkpointing)
+  - [ ] spot instances + interruption handling
+  - [ ] wandb integration
+  - [ ] multi-GPU support
 
-### example custom huggingface workflow
-1. uv run hf_train.py --model=openai-community/gpt2 --dataset=karpathy/tiny-shakespeare (use hf defined names)
-2. use --keep-alive to ssh into the instance after running the script
+- [0/4] infrastructure
+  - [ ] provider abstraction layer
+  - [ ] vast.ai support
+  - [ ] aws/gcp integration
+  - [ ] cost optimization
 
-
-### example workflow in runpod_interactive
-1. create pod (nvidia a40)
-2. deploy files (gpt2_script.py)
-3. ssh into pod
-4. install uv: `pip install uv`
-5. run: `uv run script.py`
-
-# roadmap
-
-[5/5] core features
-- [x] basic runpod integration
-- [x] project initialization
-- [x] file deployment
-- [x] auto-ssh after script execution
-- [x] one-command train existing hf model on existing hf dataset recipe (hf_train)
-- [x] git clone project and run code recipe (projects/example_cifar)
-- [x] captures + send back logs
-- [x] --keep-alive arg (default is to tear down on failed deploy or after sending logs)
-- [ ] easier to kill a keep alive pod
-- [ ] clean up file structures/abstractions
-- [ ] ruff/astral
-
-[0/5] devops stuff
-- [ ] testing
-- [ ] tqdm/etc interaction with output is a little weird
-- [ ] smarter dependency management (when to load/not load sentencepiece, etc)
-- [ ] spot instance + checkpointing support (use a spot instance, checkpoint and provision new spot if interrupt)
-- [ ] runpod secrets doesn't work with exposed tcp port (currently encrypt/decrypt .env file)
-- [ ] wandb/etc integration (?)
-
-[0/6] cost/etc
-- [ ] cost estimation
-- [ ] vast.ai integration
-- [ ] provider abstraction layer
-- [ ] cost optimization
-- [ ] aws/gcp/???
-
-[0/4] UX
-- [ ] more interactive project setup wizard
-- [ ] notebook support
-- [ ] high perf recipe (multi-gpu, fsdp + compile)
-- [ ] model chat recipe
-- [ ] comfyui recipe
-
-- [0/2] more recipes
-  - [ ] model chat interface
-  - [ ] comfyui image gen
+- [ ] UI/UX
+  - [ ] smoother setup wizard
+  - [ ] tqdm interaction with ssh stdout is a little weird
+  - [ ] smarter dependency management (selectively loading transformers optional dependencies like sentencepiece )
+  - [ ] notebook recipe
+  - [ ] high performance recipe
+  - [ ] model chat interface recipe
+  - [ ] comfyui image gen recipe
