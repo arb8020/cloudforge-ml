@@ -2,6 +2,9 @@ gpu: A40
 image: runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
 project_name: example_cifar
 provider: runpod
+budget:
+  max_dollars: 10
+  max_hours: 4
 script:
   env:
     CACHE_DIR: /workspace/example_cifar/hf_cache

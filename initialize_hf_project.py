@@ -181,15 +181,16 @@ output_dir: ./trained_model
        logger.info(f"Created config template at {config_path}")
 
 def main():
-   setup_logging("custom_hf_init.log")
-   logger = get_logger('custom_hf_init')
+    setup_logging(log_file_path=None)  # Modify setup_logging to handle None
+    logger = get_logger('my_logger')  # Retrieve the logger
 
-   parser = argparse.ArgumentParser(description="Initialize a custom HuggingFace project")
-   parser.add_argument("project_name", help="Name of the project to create")
-   args = parser.parse_args()
+    parser = argparse.ArgumentParser(description="Initialize a custom HuggingFace project")
+    parser.add_argument("project_name", help="Name of the project to create")
+    args = parser.parse_args()
 
-   initialize_custom_hf_project(args.project_name, logger)
-   logger.info(f"Custom HF project {args.project_name} initialized successfully")
+    initialize_custom_hf_project(args.project_name, logger)
+    logger.info(f"Custom HF project {args.project_name} initialized successfully")
+    logger.info(f"You can train this model and dataset with uv run hf_train.py --model=./projects/{args.project_name}/my_hf_model.py --dataset=./projects/{args.project_name}/my_hf_dataset.py")
 
 if __name__ == "__main__":
    main()

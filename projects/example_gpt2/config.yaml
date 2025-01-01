@@ -3,7 +3,9 @@ project_name: example_gpt2
 provider: runpod
 gpu: A40
 image: runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
-
+budget:
+  max_dollars: 10
+  max_hours: 4
 script:
   path: ./run_script.sh
   env:

@@ -99,10 +99,12 @@ def generate_training_script(
     script_path = os.path.join(project_dir, "script.py")
 
     script_content = f'''# /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.10"
 # dependencies = [
 #     "torch",
-#     "transformers",
+#     "protobuf",
+#     "sentencepiece",
+#     "transformers[tokenizers]",
 #     "datasets>=2.14.6",
 #     "accelerate",
 #     "cryptography",
@@ -162,9 +164,9 @@ def main():
             tokenized_dataset = dataset
             print("Local dataset loaded successfully.")
         else:
-            print(f"Loading dataset '{{dataset}}' from Hugging Face.")
+            print(f"Loading dataset '{dataset}' from Hugging Face.")
             tokenizer = AutoTokenizer.from_pretrained("gpt2", use_auth_token=token)
-            dataset = load_dataset("{dataset}", cache_dir=cache_dir)
+            dataset = load_dataset("{dataset}", cache_dir=cache_dir, trust_remote_code=True)
             tokenized_dataset = dataset['train'].map(
                 lambda x: tokenizer(x['text'], truncation=True, padding='max_length', max_length=128),
                 batched=True,
@@ -172,7 +174,7 @@ def main():
             )
             print("Dataset loaded and tokenized successfully.")
     else:
-        print(f"Loading model '{{model}}' from Hugging Face.")
+        print(f"Loading model '{model}' from Hugging Face.")
         model = AutoModelForCausalLM.from_pretrained("{model}", use_auth_token=token)
         tokenizer = AutoTokenizer.from_pretrained("{model}", use_auth_token=token)
         print("Model and tokenizer loaded successfully.")
@@ -185,7 +187,7 @@ def main():
             tokenized_dataset = dataset
             print("Local dataset loaded successfully.")
         else:
-            print(f"Loading dataset '{{dataset}}' from Hugging Face.")
+            print(f"Loading dataset '{dataset}' from Hugging Face.")
             dataset = load_dataset("{dataset}", cache_dir=cache_dir)
             tokenized_dataset = dataset['train'].map(
                 lambda x: tokenizer(x['text'], truncation=True, padding='max_length', max_length=128),
@@ -358,7 +360,7 @@ def main():
         logger.info(f"Using local model from {args.model}")
 
     if not is_local_dataset:
-        logger.info(f"Validating  dataset '{args.dataset}'...")
+        logger.info(f"Validating dataset '{args.dataset}'...")
         dataset_valid = validate_dataset_with_api(args.dataset, hf_api_token, logger)
     else:
         dataset_valid = True
@@ -377,7 +379,11 @@ def main():
     project_name = f"{model_name}_{dataset_name}"
     project_dir = os.path.join("projects", project_name)  # Use string path
 
+    initialize_project(project_name, logger)
+
     if is_local_model or is_local_dataset:
+        # logger.info(f"{args.model}, {is_local_model}")
+        # logger.info(f"{args.dataset}, {is_local_dataset}")
         model_path, dataset_path = copy_local_files(
             project_dir,
             args.model if is_local_model else None,
@@ -403,7 +409,7 @@ def main():
         logger.error("Failed to load HF training config. Aborting workflow.")
         sys.exit(1)
 
-    initialize_project(project_name, logger)
+
     generate_training_script(project_dir, args.model, args.dataset, config, logger, is_local_model, is_local_dataset)
     update_project_config(project_dir, config, logger)
 

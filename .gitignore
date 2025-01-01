@@ -1,7 +1,7 @@
-.encrypted
-.key
+*.encrypted
+*.key
 .DS_STORE
-.jsonl
-.log
+*.jsonl
+*.log
 .env
 .pod_ssh

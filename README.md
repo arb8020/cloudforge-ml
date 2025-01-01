@@ -87,10 +87,36 @@ key things to note:
 - if you pass a local .py file for --model or --dataset, the script automatically copies them into your project and uses them.
 - if you omit --keep-alive, the pod terminates after training. Otherwise, it’ll drop you into an SSH session when done.
 
+### initializing a custom huggingface run
+if you want to initialize training a custom text generation model with huggingface, and your own custom dataset
+
+```bash
+uv run initialize_hf_project.py my_hf
+```
+
+example: train mistral on tiny_shakespeare
+uv run hf_train.py --model mistralai/Mistral-7B-Instruct-v0.3 --dataset karpathy/tiny_shakespeare
+
+key things to note:
+- if you're using a gated model (like in the example), be sure you have access and you put your huggingface token in your .env
+- if you pass a local .py file for --model or --dataset, the script automatically copies them into your project and uses them.
+- if you omit --keep-alive, the pod terminates after training. Otherwise, it’ll drop you into an SSH session when done.
+
 ### examples to help you get started
 There are a few sample projects in projects/:
 
 example_cifar: clones a CIFAR10 speedrun repository, installs deps, and runs training.
+
+```bash
+uv run deploy_runpod.py --project=example_cifar
+```
+
+example_gpt2: sets up training for gpt2 on the tiny shakespeare dataset
+
+```bash
+uv run deploy_runpod.py --project=example_gpt2
+```
+
 example_gpt2: basic GPT-2 text training script with HF + datasets.
 example_hf: Another example that demonstrates using hf_train.py with a local script.
 
@@ -102,7 +128,13 @@ example_hf: Another example that demonstrates using hf_train.py with a local scr
   - [x] auto-ssh after script execution
   - [x] one-command training for HF models/datasets
 
-- [0/4] research features
+- [0/4] UI/UX
+  - [ ] better abstractions/code organization for continuing work (extracting templates, etc)
+  - [ ] smarter dependency management (selectively loading transformers optional dependencies like sentencepiece )
+  - [ ] smoother setup wizard
+  - [ ] tqdm interaction with ssh stdout is a little weird
+
+- [0/5] research features
   - [ ] support for tasks beyond text generation
   - [ ] advanced training (FSDP, checkpointing)
   - [ ] spot instances + interruption handling
@@ -114,12 +146,6 @@ example_hf: Another example that demonstrates using hf_train.py with a local scr
   - [ ] vast.ai support
   - [ ] aws/gcp integration
   - [ ] cost optimization
-
-- [0/4] UI/UX
-  - [ ] better abstractions/code organization for continuing work
-  - [ ] smoother setup wizard
-  - [ ] tqdm interaction with ssh stdout is a little weird
-  - [ ] smarter dependency management (selectively loading transformers optional dependencies like sentencepiece )
 
 - [0/4] recipes
   - [ ] notebook recipe
