@@ -127,9 +127,11 @@ example_hf: Another example that demonstrates using hf_train.py with a local scr
   - [x] file deployment
   - [x] auto-ssh after script execution
   - [x] one-command training for HF models/datasets
+  - [x] one-command initialization for ComfyUI text2img workflows
 
 - [0/4] UI/UX
   - [ ] better abstractions/code organization for continuing work (extracting templates, etc)
+  - [ ] better pod naming
   - [ ] smarter dependency management (selectively loading transformers optional dependencies like sentencepiece )
   - [ ] smoother setup wizard
   - [ ] tqdm interaction with ssh stdout is a little weird
@@ -147,8 +149,15 @@ example_hf: Another example that demonstrates using hf_train.py with a local scr
   - [ ] aws/gcp integration
   - [ ] cost optimization
 
+- [ ] huggingface
+  - [ ] support for tasks other than text generation
+  - [ ] pre + post training pipeline
+
+- [ ] comfyui
+  - [ ] customizable dockerfile/runpod template to change bootup behavior (automatically downloaded models, etc)
+  - [ ] bootup with more example workflows
+
 - [0/4] recipes
   - [ ] notebook recipe
   - [ ] high performance recipe
   - [ ] model chat interface recipe
-  - [ ] comfyui image gen recipe

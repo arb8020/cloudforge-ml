@@ -1,0 +1,26 @@
+budget:
+  max_dollars: 10
+  max_hours: 4
+gpu: NVIDIA GeForce RTX 3090
+image: aitrepreneur/comfyui:2.3.5
+template_id: lu30abf2pn
+containerDiskInGb: 10
+gpuCount: 1
+minMemoryInGb: 125
+startJupyter: true
+startSsh: true
+volumeInGb: 80
+minVcpuCount: 16
+project_name: comfy_run
+provider: runpod
+ports: "3000/http,8000/http,8888/http,2999/http,7777/http,22/tcp"
+script:
+  env:
+    CACHE_DIR: /workspace/test_comfy/hf_cache
+    HF_HOME: /tmp/huggingface
+  path: ./run_script.sh
+ssh:
+  key_path: ~/.ssh/id_ed25519
+upload:
+  local_dir: .
+  remote_dir: /root/workspace/test_comfy

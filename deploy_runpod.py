@@ -86,23 +86,39 @@ def get_gpus(api_key: str, logger: logging.Logger) -> list:
     logger.debug("Fetched GPU types successfully.")
     return response["data"]["gpuTypes"]
 
-def create_pod(api_key: str, name: str, image_name: str, gpu_type_id: str, logger: logging.Logger) -> dict:
+def create_pod(api_key: str, name: str, config: Dict, gpu_type_id: str, logger: logging.Logger) -> dict:
+    if 'containerDiskInGb' not in config:
+        config['containerDiskInGb'] = 50
+    if 'volumeInGb' not in config:
+        config['volumeInGb'] = 80
+    if 'gpuCount' not in config:
+        config['gpuCount'] = 1
+    if 'minVcpuCount' not in config:
+        config['minVcpuCount'] = 1
+    if 'minMemoryInGB' not in config:
+        config['minMemoryInGB'] = 0
+    if 'template_id' not in config:
+        config['template_id'] = ''
+    if 'ports' not in config:
+        config['ports'] = "22/tcp,8888/http"
     query = f"""
     mutation {{
         podFindAndDeployOnDemand(
             input: {{
                 name: "{name}",
-                imageName: "{image_name}",
+                imageName: "{config['image']}",
                 gpuTypeId: "{gpu_type_id}",
                 cloudType: ALL,
                 startSsh: true,
+                startJupyter: true,
                 supportPublicIp: true,
-                gpuCount: 1,
-                containerDiskInGb: 50,
-                volumeInGb: 0,
-                minVcpuCount: 1,
-                minMemoryInGb: 1,
-                ports: "22/tcp,8888/http"
+                gpuCount: {config['gpuCount']},
+                containerDiskInGb: {config['containerDiskInGb']},
+                volumeInGb: {config['volumeInGb']},
+                minVcpuCount: {config['minVcpuCount']},
+                minMemoryInGb: {config['minMemoryInGb']},
+                ports: "{config['ports']}",
+                templateId: "{config['template_id']}",
             }}
         ) {{
             id
@@ -112,6 +128,8 @@ def create_pod(api_key: str, name: str, image_name: str, gpu_type_id: str, logge
         }}
     }}
     """
+
+    # logger.info(f"query: {query}")
 
     response = requests.post(
         f"{API_URL}?api_key={api_key}",
@@ -387,7 +405,7 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
     pod_id = None
     try:
         # Create pod
-        pod = create_pod(api_key, pod_name, config["image"], selected_gpu_id, logger)
+        pod = create_pod(api_key, pod_name, config, selected_gpu_id, logger)
         pod_id = pod["id"]
         state['pod_id'] = pod_id
 
@@ -475,7 +493,7 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
                 logger.error(f"IMPORTANT: TERMINATE YOUR POD MANUALLY AT https://www.runpod.io/console/pods")
         sys.exit(1)
 
-def wait_for_pod_running(api_key: str, pod_id: str, logger: logging.Logger, timeout: int = 120, interval: int = 15) -> Dict[str, Any]:
+def wait_for_pod_running(api_key: str, pod_id: str, logger: logging.Logger, timeout: int = 600, interval: int = 15) -> Dict[str, Any]:
     """
     Waits until the pod reaches the RUNNING state and runtime information is available.
 
