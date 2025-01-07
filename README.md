@@ -25,7 +25,7 @@ goal: ~one-click deployment for hugging face models/datasets on arbitrary cloud 
 ### standard workflow
 ```bash
 # train any HF model on any dataset with automatic cost tracking
-uv run hf_train.py --model openai-community/gpt2 --dataset karpathy/tiny-shakespeare
+uv run hf_train.py --model openai-community/gpt2 --dataset karpathy/tiny_shakespeare
 
 # or use your own model/dataset
 uv run initialize_hf_project.py my_project
