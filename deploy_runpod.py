@@ -88,7 +88,7 @@ def get_gpus(api_key: str, logger: logging.Logger) -> list:
 
 def create_pod(api_key: str, name: str, config: Dict, gpu_type_id: str, logger: logging.Logger) -> dict:
     container_disk_in_gb = config.get('containerDiskInGb', 50)
-    volume_in_gb = config.get('volumeInGb', 80)
+    volume_in_gb = config.get('volumeInGb', 0)
     gpu_count = config.get('gpuCount', 1)
     min_vcpu_count = config.get('minVcpuCount', 1)
     min_memory_in_gb = config.get('minMemoryInGB', 0)
@@ -117,7 +117,7 @@ def create_pod(api_key: str, name: str, config: Dict, gpu_type_id: str, logger: 
                 minVcpuCount: {min_vcpu_count},
                 minMemoryInGb: {min_memory_in_gb},
                 ports: "{ports}",
-                templateId: "{template_id}",
+                templateId: "",
             }}
         ) {{
             id
@@ -128,7 +128,7 @@ def create_pod(api_key: str, name: str, config: Dict, gpu_type_id: str, logger: 
     }}
     """
 
-    # logger.info(f"query: {query}")
+    logger.info(f"query: {query}")
 
     response = requests.post(
         f"{API_URL}?api_key={api_key}",
