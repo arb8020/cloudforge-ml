@@ -87,38 +87,37 @@ def get_gpus(api_key: str, logger: logging.Logger) -> list:
     return response["data"]["gpuTypes"]
 
 def create_pod(api_key: str, name: str, config: Dict, gpu_type_id: str, logger: logging.Logger) -> dict:
-    if 'containerDiskInGb' not in config:
-        config['containerDiskInGb'] = 50
-    if 'volumeInGb' not in config:
-        config['volumeInGb'] = 80
-    if 'gpuCount' not in config:
-        config['gpuCount'] = 1
-    if 'minVcpuCount' not in config:
-        config['minVcpuCount'] = 1
-    if 'minMemoryInGB' not in config:
-        config['minMemoryInGB'] = 0
-    if 'template_id' not in config:
-        config['template_id'] = ''
-    if 'ports' not in config:
-        config['ports'] = "22/tcp,8888/http"
+    container_disk_in_gb = config.get('containerDiskInGb', 50)
+    volume_in_gb = config.get('volumeInGb', 80)
+    gpu_count = config.get('gpuCount', 1)
+    min_vcpu_count = config.get('minVcpuCount', 1)
+    min_memory_in_gb = config.get('minMemoryInGB', 0)
+    template_id = config.get('template_id', '')
+    ports = config.get('ports', "22/tcp,8888/http")
+    image = config.get('image')
+
+    if not image:
+        logger.error("The 'image' field is required in the config.")
+        raise ValueError("The 'image' field is required in the config.")
+
     query = f"""
     mutation {{
         podFindAndDeployOnDemand(
             input: {{
                 name: "{name}",
-                imageName: "{config['image']}",
+                imageName: "{image}",
                 gpuTypeId: "{gpu_type_id}",
                 cloudType: ALL,
                 startSsh: true,
                 startJupyter: true,
                 supportPublicIp: true,
-                gpuCount: {config['gpuCount']},
-                containerDiskInGb: {config['containerDiskInGb']},
-                volumeInGb: {config['volumeInGb']},
-                minVcpuCount: {config['minVcpuCount']},
-                minMemoryInGb: {config['minMemoryInGb']},
-                ports: "{config['ports']}",
-                templateId: "{config['template_id']}",
+                gpuCount: {gpu_count},
+                containerDiskInGb: {container_disk_in_gb},
+                volumeInGb: {volume_in_gb},
+                minVcpuCount: {min_vcpu_count},
+                minMemoryInGb: {min_memory_in_gb},
+                ports: "{ports}",
+                templateId: "{template_id}",
             }}
         ) {{
             id
