@@ -23,7 +23,8 @@ from dotenv import load_dotenv
 from typing import Optional, Dict, Any
 from cryptography.fernet import Fernet
 from pathlib import Path
-
+import time
+import threading
 # Import logging setup
 from logging_setup import setup_logging, get_logger
 
@@ -128,7 +129,7 @@ def create_pod(api_key: str, name: str, config: Dict, gpu_type_id: str, logger: 
     }}
     """
 
-    logger.info(f"query: {query}")
+    # logger.info(f"query: {query}")
 
     response = requests.post(
         f"{API_URL}?api_key={api_key}",
@@ -259,21 +260,49 @@ def upload_files_to_pod(api_key: str, pod: Dict[str, Any], local_dir: str, remot
         logger.error(f"Failed to create remote directory: {e.stderr}")
         raise DeploymentError(f"Failed to create remote directory: {e.stderr}")
 
-    # Use SCP to upload the contents of the local directory
-    scp_command = [
-        "scp",
-        "-i", ssh_key_path,
-        "-P", str(ssh_port),
-        "-r", os.path.join(local_dir, '.'),  # Upload contents, including run_script.sh and script.py
-        f"root@{ssh_ip}:{remote_dir}"
-    ]
-    logger.info(f"Uploading contents of '{local_dir}' to '{remote_dir}' on the pod...")
-    try:
-        subprocess.run(scp_command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        logger.info("Files uploaded successfully!")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"SCP upload failed: {e.stderr}")
-        raise DeploymentError(f"SCP upload failed: {e.stderr}")
+    for attempt in range(3):  # 3 retries for SCP
+        try:
+            scp_command = [
+                "scp",
+                "-i", ssh_key_path,
+                "-P", str(ssh_port),
+                "-r", os.path.join(local_dir, '.'),
+                f"root@{ssh_ip}:{remote_dir}"
+            ]
+            logger.info(f"Uploading contents of '{local_dir}' to '{remote_dir}' via SCP (attempt {attempt + 1}/3)...")
+            subprocess.run(scp_command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            logger.info("Files uploaded successfully with SCP!")
+            return  # Exit function if SCP succeeds
+        except subprocess.CalledProcessError as e:
+            if attempt == 2:  # After final SCP attempt
+                logger.error(f"SCP upload failed after 3 attempts: {e.stderr}")
+            else:
+                logger.warning(f"SCP attempt {attempt + 1} failed, retrying in 5 seconds...")
+                time.sleep(5)
+
+    # If SCP fails after all attempts, fall back to rsync
+    logger.info("Falling back to rsync for file transfer...")
+
+    for attempt in range(3):  # 3 retries for rsync
+        try:
+            rsync_command = [
+                "rsync",
+                "-avz",  # archive mode, verbose, compress
+                "-e", f"ssh -i {ssh_key_path} -p {ssh_port}",
+                os.path.join(local_dir, '.') + "/",  # Trailing slash to transfer directory contents
+                f"root@{ssh_ip}:{remote_dir}"
+            ]
+            logger.info(f"Uploading contents of '{local_dir}' to '{remote_dir}' via rsync (attempt {attempt + 1}/3)...")
+            subprocess.run(rsync_command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            logger.info("Files uploaded successfully with rsync!")
+            return  # Exit function if rsync succeeds
+        except subprocess.CalledProcessError as e:
+            if attempt == 2:  # After final rsync attempt
+                logger.error(f"rsync upload failed after 3 attempts: {e.stderr}")
+                raise DeploymentError(f"rsync upload failed: {e.stderr}")
+            else:
+                logger.warning(f"rsync attempt {attempt + 1} failed, retrying in 5 seconds...")
+                time.sleep(5)
 
 def execute_script_on_pod(ssh_key_path: str, ssh_ip: str, ssh_port: int, script_path: str, env_vars: Dict[str, str], remote_dir: str, logger: logging.Logger):
     # Construct environment variables export command
@@ -294,7 +323,8 @@ def execute_script_on_pod(ssh_key_path: str, ssh_ip: str, ssh_port: int, script_
 
         # Stream stdout
         for line in iter(process.stdout.readline, ''):
-            logger.info(line.rstrip())
+            if line.strip():  # Add this line to skip empty/whitespace lines
+                logger.info(line.rstrip())
 
         # Stream stderr
         for line in iter(process.stderr.readline, ''):
@@ -356,6 +386,39 @@ def monitor_pod(api_key: str, pod_id: str, config: Dict[str, Any], state: Dict[s
             logger.error(f"Error in pod monitoring: {str(e)}")
             break
 
+import os
+import json
+import sys
+import subprocess
+import time
+import threading
+from pathlib import Path
+from typing import Optional, Dict, Any
+
+# Assume other necessary imports and helper functions (e.g., get_gpus, create_pod, upload_files_to_pod, execute_script_on_pod, terminate_pod, etc.) are defined above.
+
+def find_existing_pod(api_key: str, project_dir: str, logger: logging.Logger) -> Optional[dict]:
+    pod_info_path = os.path.join(project_dir, ".pod_ssh")
+    if not os.path.exists(pod_info_path):
+        return None
+    try:
+        with open(pod_info_path, "r") as f:
+            ssh_info = json.load(f)
+        existing_pod_id = ssh_info.get("pod_id")
+    except Exception as e:
+        logger.warning(f"Failed to read existing pod info: {e}")
+        return None
+
+    try:
+        pods = get_pod_status(api_key, logger)
+        for pod in pods:
+            if pod["id"] == existing_pod_id and pod.get("desiredStatus", "").lower() == "running":
+                logger.info(f"Found active pod with ID: {existing_pod_id}")
+                return pod
+    except Exception as e:
+        logger.error(f"Error fetching pod status: {e}")
+    return None
+
 def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging.Logger, keep_alive: bool, state: Dict[str, Any]) -> Dict[str, Any]:
     project_name = config.get("project_name")
     if not project_name:
@@ -364,7 +427,6 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
 
     # Infer remote workspace dynamically
     remote_dir = config["upload"]["remote_dir"]
-
     local_dir = config["upload"]["local_dir"]
     script_path = config["script"]["path"]
     env_vars = config["script"].get("env", {})
@@ -379,13 +441,12 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
     full_script_path = os.path.join(local_dir, os.path.basename(script_path))
     set_executable(full_script_path, logger)
 
+    # GPU selection logic
     if "gpu_id" in config:
         selected_gpu_id = config["gpu_id"]
         logger.info(f"Using GPU ID from config: {selected_gpu_id}")
     else:
-        # Get available GPUs
         gpus = get_gpus(api_key, logger)
-
         gpu_display_name_lower = config["gpu"].lower()
         selected_gpu_id = None
         for gpu in gpus:
@@ -396,32 +457,21 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
             logger.error(f"GPU type '{config['gpu']}' not found.")
             raise DeploymentError(f"GPU type '{config['gpu']}' not found.")
 
-    # Create a unique pod name
-    import time
+    # Create a unique pod name for new deployment
     pod_name = f"auto-deploy-{int(time.time())}"
 
-    # Initialize pod_id for tracking
-    pod_id = None
-    try:
-        # Create pod
-        pod = create_pod(api_key, pod_name, config, selected_gpu_id, logger)
+    # Attempt to find an existing pod if --keep-alive is set
+    existing_pod = None
+    if keep_alive:
+        existing_pod = find_existing_pod(api_key, local_dir, logger)
+
+    if existing_pod:
+        # Reuse existing active pod
+        pod = existing_pod
         pod_id = pod["id"]
         state['pod_id'] = pod_id
 
-        # Start monitor thread
-        import threading
-        monitor_thread = threading.Thread(
-            target=monitor_pod,
-            args=(api_key, pod_id, config, state, logger),
-            daemon=True
-        )
-        monitor_thread.start()
-
-        # Wait for pod to be ready with runtime information
-        logger.info("Waiting for pod to be in RUNNING state with runtime information...")
-        pod = wait_for_pod_running(api_key, pod_id, logger)
-
-        # Extract SSH details
+        # Extract SSH details from the existing pod
         runtime = pod.get("runtime", {})
         ports = runtime.get("ports", [])
         ssh_port_info = next((port for port in ports if port["privatePort"] == 22 and port["isIpPublic"]), None)
@@ -432,37 +482,28 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
         ssh_ip = ssh_port_info["ip"]
         ssh_port = ssh_port_info["publicPort"]
 
-        # SSH command
         ssh_command_str = f"ssh root@{ssh_ip} -p {ssh_port} -i {ssh_key_path}"
-        logger.info("Pod ready for SSH access:")
+        logger.info("Reusing existing pod. Pod ready for SSH access:")
         logger.warning(f"{ssh_command_str}")
 
-        # Save SSH info to file
+        # Update SSH info file
         ssh_info = {
             "command": ssh_command_str,
             "pod_id": pod_id,
             "ip": ssh_ip,
             "port": ssh_port
         }
-
-        project_dir = config["upload"]["local_dir"]
-        with open(os.path.join(project_dir, ".pod_ssh"), "w") as f:
+        with open(os.path.join(local_dir, ".pod_ssh"), "w") as f:
             json.dump(ssh_info, f, indent=2)
-        logger.debug("SSH information saved to .pod_ssh file.")
+        logger.debug("SSH information updated in .pod_ssh file.")
 
-        # Upload files
+        # Proceed with file upload and script execution on the existing pod
         upload_files_to_pod(api_key, pod, local_dir, remote_dir, ssh_key_path, ssh_ip, ssh_port, logger)
-
-        # Execute the bash script
         execute_script_on_pod(ssh_key_path, ssh_ip, ssh_port, os.path.basename(script_path), env_vars, remote_dir, logger)
 
-        # After successful script execution
         if keep_alive:
-            logger.info("Deployment completed successfully! Dropping into SSH session as '--keep-alive' is set.")
+            logger.info("Deployment completed successfully with existing pod!")
             logger.warning(f"\nTo connect to your pod:\n{ssh_command_str}")
-
-            # Connect to SSH
-            logger.warning("Connecting to pod via SSH...")
             try:
                 subprocess.run([
                     "ssh",
@@ -480,17 +521,69 @@ def deploy_pod_from_config(api_key: str, config: Dict[str, Any], logger: logging
 
         return pod
 
-    except Exception as e:
-        logger.error(f"Error during deployment: {str(e)}", exc_info=True)
-        if pod_id:
-            logger.warning("Attempting to terminate the pod due to deployment error...")
-            try:
-                terminate_pod(api_key, pod_id, logger)
-                logger.info("Pod terminated successfully.")
-            except Exception as termination_error:
-                logger.error(f"Failed to terminate pod: {str(termination_error)}", exc_info=True)
-                logger.error(f"IMPORTANT: TERMINATE YOUR POD MANUALLY AT https://www.runpod.io/console/pods")
-        sys.exit(1)
+    # If no existing pod found, proceed to create a new one
+    pod = create_pod(api_key, pod_name, config, selected_gpu_id, logger)
+    pod_id = pod["id"]
+    state['pod_id'] = pod_id
+
+    # Start monitor thread and wait for pod to run as in original implementation...
+    monitor_thread = threading.Thread(
+        target=monitor_pod,
+        args=(api_key, pod_id, config, state, logger),
+        daemon=True
+    )
+    monitor_thread.start()
+
+    logger.info("Waiting for pod to be in RUNNING state with runtime information...")
+    pod = wait_for_pod_running(api_key, pod_id, logger)
+
+    runtime = pod.get("runtime", {})
+    ports = runtime.get("ports", [])
+    ssh_port_info = next((port for port in ports if port["privatePort"] == 22 and port["isIpPublic"]), None)
+    if not ssh_port_info:
+        logger.error("No public SSH port found for the pod.")
+        raise DeploymentError("No public SSH port found for the pod.")
+
+    ssh_ip = ssh_port_info["ip"]
+    ssh_port = ssh_port_info["publicPort"]
+
+    ssh_command_str = f"ssh root@{ssh_ip} -p {ssh_port} -i {ssh_key_path}"
+    logger.info("Pod ready for SSH access:")
+    logger.warning(f"{ssh_command_str}")
+
+    ssh_info = {
+        "command": ssh_command_str,
+        "pod_id": pod_id,
+        "ip": ssh_ip,
+        "port": ssh_port
+    }
+    with open(os.path.join(local_dir, ".pod_ssh"), "w") as f:
+        json.dump(ssh_info, f, indent=2)
+    logger.debug("SSH information saved to .pod_ssh file.")
+
+    upload_files_to_pod(api_key, pod, local_dir, remote_dir, ssh_key_path, ssh_ip, ssh_port, logger)
+    execute_script_on_pod(ssh_key_path, ssh_ip, ssh_port, os.path.basename(script_path), env_vars, remote_dir, logger)
+
+    if keep_alive:
+        logger.info("Deployment completed successfully! Dropping into SSH session as '--keep-alive' is set.")
+        logger.warning(f"\nTo connect to your pod:\n{ssh_command_str}")
+        try:
+            subprocess.run([
+                "ssh",
+                f"root@{ssh_ip}",
+                "-p", str(ssh_port),
+                "-i", ssh_key_path
+            ])
+        except Exception as e:
+            logger.error(f"Failed to establish SSH connection: {str(e)}")
+            logger.warning("You can manually connect using the command above.")
+    else:
+        logger.info("Deployment completed successfully! Terminating the pod as '--keep-alive' is not set.")
+        terminate_pod(api_key, pod_id, logger)
+        logger.info("Pod terminated as per '--keep-alive' flag.")
+
+    return pod
+
 
 def wait_for_pod_running(api_key: str, pod_id: str, logger: logging.Logger, timeout: int = 600, interval: int = 15) -> Dict[str, Any]:
     """

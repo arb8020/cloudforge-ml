@@ -20,6 +20,7 @@ goal: ~one-click deployment for hugging face models/datasets on arbitrary cloud 
 1. get api key: settings > api keys (https://www.runpod.io/console/user/settings)
 2. create .env: `RUNPOD_API_KEY=your_key_here`
 3. make ssh key: `ssh-keygen -t ed25519 -C "your_email@example.com"`
+4. getting key: use `cat` on the path it tells you it saved to, to copy the key
 4. add key: settings > ssh keys (https://www.runpod.io/console/user/settings)
 
 ### standard workflow
@@ -103,7 +104,7 @@ key things to note:
 - if you omit --keep-alive, the pod terminates after training. Otherwise, it’ll drop you into an SSH session when done.
 
 ### examples to help you get started
-There are a few sample projects in projects/:
+There are a few sample projects in projects:
 
 example_cifar: clones a CIFAR10 speedrun repository, installs deps, and runs training.
 
@@ -120,6 +121,20 @@ uv run deploy_runpod.py --project=example_gpt2
 example_gpt2: basic GPT-2 text training script with HF + datasets.
 example_hf: Another example that demonstrates using hf_train.py with a local script.
 
+### common errors
+
+```bash
+ERROR - SCP upload failed: Read from remote host Connection reset by peer```
+
+runpod connections can be finicky, just try again (will eventually replace this with rsync), this has been acting up more recently (past 24 hours), reason unknown
+
+
+```bash
+Pod is running but runtime information is not yet available. Waiting...```
+
+if you get stuck here for over a few minutes (note: comfy workflow can take up to 10min), check the logs on runpod.io for any errors and manually terminate - there may be something wrong with your custom config parameters
+
+
 ## roadmap
 - [5/5] core features
   - [x] runpod integration
@@ -129,12 +144,13 @@ example_hf: Another example that demonstrates using hf_train.py with a local scr
   - [x] one-command training for HF models/datasets
   - [x] one-command initialization for ComfyUI text2img workflows
 
-- [0/4] UI/UX
+- [0/6] UI/UX
+  - [ ] logs could be cleaner, uv especially really hogs space in the logs
+  - [ ] runpod likes to randomly reset connection during scp file transfer every once in a blue moon
   - [ ] better abstractions/code organization for continuing work (extracting templates, etc)
-  - [ ] better pod naming
+  - [ ] better default pod naming
   - [ ] smarter dependency management (selectively loading transformers optional dependencies like sentencepiece )
   - [ ] smoother setup wizard
-  - [ ] tqdm interaction with ssh stdout is a little weird
 
 - [0/5] research features
   - [ ] support for tasks beyond text generation
@@ -149,11 +165,11 @@ example_hf: Another example that demonstrates using hf_train.py with a local scr
   - [ ] aws/gcp integration
   - [ ] cost optimization
 
-- [ ] huggingface
+- [0/2] huggingface
   - [ ] support for tasks other than text generation
   - [ ] pre + post training pipeline
 
-- [ ] comfyui
+- [0/2] comfyui
   - [ ] customizable dockerfile/runpod template to change bootup behavior (automatically downloaded models, etc)
   - [ ] bootup with more example workflows
 

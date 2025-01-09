@@ -110,13 +110,41 @@ def generate_training_script(
 #     "cryptography",
 # ]
 # ///
+#
 
 import json
 import os
+import yaml
+import time
 from cryptography.fernet import Fernet
 import torch
-from transformers import AutoTokenizer, Trainer, TrainingArguments, DataCollatorForLanguageModeling, AutoModelForCausalLM
+from transformers import (
+    AutoTokenizer,
+    Trainer,
+    TrainingArguments,
+    DataCollatorForLanguageModeling,
+    AutoModelForCausalLM,
+    TrainerCallback
+)
 from datasets import load_dataset
+
+class CostProgressCallback(TrainerCallback):
+    def __init__(self, total_steps, cost_per_hour):
+        self.start_time = time.time()
+        self.total_steps = total_steps
+        self.cost_per_hour = cost_per_hour
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        print(f"Starting training: {{self.total_steps}} total steps")
+        print(f"Estimated cost per hour: ${{self.cost_per_hour:.2f}}")
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.global_step % max(1, self.total_steps // 100) == 0:
+            elapsed_hours = (time.time() - self.start_time) / 3600
+            cost = elapsed_hours * self.cost_per_hour
+            progress = (state.global_step / self.total_steps) * 100
+            loss = state.log_history[-1].get('loss', 0) if state.log_history else 0
+            print(f"Progress: {{progress:.1f}}% | Step: {{state.global_step}}/{{self.total_steps}} | Loss: {{loss:.4f}} | Cost: ${{cost:.2f}}")
 
 def setup_env():
     with open('.env.encrypted', 'rb') as f:
@@ -132,13 +160,20 @@ def setup_env():
 def main():
     print("Starting training script.")
 
+    # Load config for cost tracking
+    with open('config.yaml') as f:
+        config = yaml.safe_load(f)
+
+    with open('.pod_ssh') as f:
+            pod_info = json.load(f)
+    cost_per_hour = pod_info['cost_per_hour']
+
     setup_env()
     print("Environment variables loaded and decrypted.")
 
     os.environ["HF_HOME"] = "/tmp/huggingface"
     cache_dir = "/root/hf_cache"
     os.makedirs(cache_dir, exist_ok=True)
-    print(f"Cache directory set at {{cache_dir}}.")
 
     token = os.getenv('HF_API_KEY')
     if not token:
@@ -188,17 +223,16 @@ def main():
             print("Local dataset loaded successfully.")
         else:
             print(f"Loading dataset '{dataset}' from Hugging Face.")
-            dataset = load_dataset("{dataset}", cache_dir=cache_dir)
+            dataset = load_dataset("{dataset}", cache_dir=cache_dir, trust_remote_code=True)
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+                print("Pad token was None. Set pad_token to eos_token.")
             tokenized_dataset = dataset['train'].map(
                 lambda x: tokenizer(x['text'], truncation=True, padding='max_length', max_length=128),
                 batched=True,
                 remove_columns=dataset['train'].column_names
             )
             print("Dataset loaded and tokenized successfully.")
-
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-        print("Pad token was None. Set pad_token to eos_token.")
 
     # Data collator
     data_collator = DataCollatorForLanguageModeling(
@@ -218,15 +252,20 @@ def main():
         save_total_limit={config['training']['save_limit']},
         logging_dir="./logs",
         logging_steps=10,
-        report_to="none"  # Disable default reporting to avoid conflicts
+        report_to="none"
     )
     print("Training arguments set.")
+    num_update_steps_per_epoch = len(tokenized_dataset) // training_args.per_device_train_batch_size + 1
+    total_steps = num_update_steps_per_epoch * training_args.num_train_epochs
 
+    # Initialize trainer with our cost progress callback
+    cost_callback = CostProgressCallback(total_steps, cost_per_hour)
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=tokenized_dataset,
-        data_collator=data_collator
+        data_collator=data_collator,
+        callbacks=[cost_callback]
     )
     print("Trainer initialized.")
     print("Model vocab size:", model.config.vocab_size)

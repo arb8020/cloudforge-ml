@@ -5,7 +5,7 @@ disable_existing_loggers: False
 
 formatters:
   standard:
-    format: "%(levelname)s - %(message)s - %(asctime)s"
+    format: "%(message)s - %(asctime)s - %(levelname)s"
     datefmt: "%Y-%m-%d %H:%M:%S"
 
   json:
